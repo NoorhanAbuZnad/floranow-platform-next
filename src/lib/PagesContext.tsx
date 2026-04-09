@@ -5,6 +5,7 @@ import { usePages, type PageDef, type TabDef } from './usePages'
 
 interface PagesContextValue {
   pages: PageDef[]
+  dbLoaded: boolean
   addPage: (title: string, emoji: string) => void
   removePage: (id: string) => void
   updatePage: (id: string, patch: Partial<Pick<PageDef, 'title' | 'emoji'>>) => void

@@ -29,7 +29,7 @@ const DEFAULT_CONTENT: Record<string, React.ReactNode> = {
 }
 
 function AppContent({ initialSlug }: { initialSlug: string }) {
-  const { pages } = usePagesContext()
+  const { pages, dbLoaded } = usePagesContext()
   const pathname = usePathname()
   const router = useRouter()
 
@@ -37,10 +37,10 @@ function AppContent({ initialSlug }: { initialSlug: string }) {
   const page = pages.find(p => p.slug === slug)
 
   useEffect(() => {
-    if (!page && pages.length > 0) {
+    if (dbLoaded && !page && pages.length > 0) {
       router.replace(`/${pages[0].slug}`)
     }
-  }, [page, pages, router])
+  }, [dbLoaded, page, pages, router])
 
   if (!page) return null
 

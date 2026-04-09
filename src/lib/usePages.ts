@@ -118,24 +118,54 @@ async function savePagesToDb(pages: PageDef[]): Promise<void> {
   } catch { /* fallback to localStorage */ }
 }
 
+function mergePages(local: PageDef[], db: PageDef[]): PageDef[] {
+  const dbById = new Map(db.map(p => [p.id, p]))
+  const merged = new Map<string, PageDef>()
+
+  for (const p of db) merged.set(p.id, p)
+
+  for (const p of local) {
+    if (!merged.has(p.id)) {
+      merged.set(p.id, p)
+    } else if (p.isDefault) {
+      const dbPage = dbById.get(p.id)!
+      const savedTabIds = new Set(dbPage.tabs.map(t => t.id))
+      const missingTabs = p.tabs.filter(t => !savedTabIds.has(t.id))
+      merged.set(p.id, { ...dbPage, tabs: [...dbPage.tabs, ...missingTabs] })
+    }
+  }
+
+  return Array.from(merged.values()).sort((a, b) => a.num - b.num)
+}
+
 export function usePages() {
   const [pages, setPagesRaw] = useState<PageDef[]>(loadPages)
+  const [dbLoaded, setDbLoaded] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const skipNextDbSave = useRef(false)
 
-  // Load pages list from DB on mount
   useEffect(() => {
     let cancelled = false
     fetchPagesFromDb().then(dbPages => {
-      if (cancelled || !dbPages || !Array.isArray(dbPages) || dbPages.length === 0) return
-      setPagesRaw(dbPages)
-      savePages(dbPages)
+      if (cancelled) return
+      setDbLoaded(true)
+      if (!dbPages || !Array.isArray(dbPages) || dbPages.length === 0) return
+      setPagesRaw(prev => {
+        const merged = mergePages(prev, dbPages)
+        savePages(merged)
+        skipNextDbSave.current = true
+        return merged
+      })
     })
     return () => { cancelled = true }
   }, [])
 
-  // Save to localStorage immediately + DB with debounce on every change
   useEffect(() => {
     savePages(pages)
+    if (skipNextDbSave.current) {
+      skipNextDbSave.current = false
+      return
+    }
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => savePagesToDb(pages), 500)
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
@@ -159,12 +189,18 @@ export function usePages() {
         isDefault: false,
         tabs: [{ id: 'content', title: 'Content', type: 'blocks' }],
       }
-      return [...prev, newPage]
+      const next = [...prev, newPage]
+      savePagesToDb(next)
+      return next
     })
   }, [])
 
   const removePage = useCallback((id: string) => {
-    setPagesRaw(prev => prev.filter(p => p.id !== id || p.isDefault))
+    setPagesRaw(prev => {
+      const next = prev.filter(p => p.id !== id || p.isDefault)
+      savePagesToDb(next)
+      return next
+    })
   }, [])
 
   const updatePage = useCallback((id: string, patch: Partial<Pick<PageDef, 'title' | 'emoji'>>) => {
@@ -199,5 +235,5 @@ export function usePages() {
     try { localStorage.removeItem(STORAGE_KEY) } catch {}
   }, [])
 
-  return { pages, setPages, addPage, removePage, updatePage, addTab, removeTab, updateTab, resetPages }
+  return { pages, dbLoaded, setPages, addPage, removePage, updatePage, addTab, removeTab, updateTab, resetPages }
 }
