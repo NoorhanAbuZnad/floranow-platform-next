@@ -1,26 +1,62 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  --color-fn-50: #F0FDF4;
+  --color-fn-100: #DCFCE7;
+  --color-fn-200: #BBF7D0;
+  --color-fn-300: #86EFAC;
+  --color-fn-400: #4ADE80;
+  --color-fn-500: #22A652;
+  --color-fn-600: #1A8F45;
+  --color-fn-700: #15803D;
+  --color-fn-800: #166534;
+  --color-fn-900: #14532D;
+
+  --color-bronze: #CD7F32;
+  --color-bronze-bg: #FDF4E8;
+  --color-bronze-border: #E8C896;
+  --color-silver: #8C9EAF;
+  --color-silver-bg: #F1F5F9;
+  --color-silver-border: #CBD5E1;
+  --color-gold: #D4A017;
+  --color-gold-bg: #FFFBEB;
+  --color-gold-border: #FDE68A;
+
+  --color-surface: #F8FAFC;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Mermaid diagram styles */
+.mermaid-output svg {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, sans-serif !important;
+}
+
+.mermaid-output .nodeLabel {
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+}
+
+.mermaid-output .cluster-label .nodeLabel {
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.02em !important;
+}
+
+.mermaid-output .edgeLabel {
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  background: white !important;
+  padding: 2px 6px !important;
+  border-radius: 4px !important;
+}
+
+.mermaid-output .marker {
+  fill: #22A652 !important;
+  stroke: #22A652 !important;
 }
