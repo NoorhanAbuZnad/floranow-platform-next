@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 
 export interface TabDef {
   id: string
@@ -19,6 +19,24 @@ export interface PageDef {
 }
 
 const STORAGE_KEY = 'floranow:pages'
+const DB_KEY = '_pages_list'
+
+function titleToSlug(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    || `page-${Date.now()}`
+}
+
+function uniqueSlug(base: string, existing: Set<string>): string {
+  if (!existing.has(base)) return base
+  let i = 2
+  while (existing.has(`${base}-${i}`)) i++
+  return `${base}-${i}`
+}
 
 export const DEFAULT_PAGES: PageDef[] = [
   { id: 'architecture', slug: 'architecture', title: 'Architecture', emoji: '🏗️', num: 1, isDefault: true, tabs: [
@@ -81,11 +99,46 @@ function savePages(pages: PageDef[]) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(pages)) } catch {}
 }
 
+async function fetchPagesFromDb(): Promise<PageDef[] | null> {
+  try {
+    const res = await fetch(`/api/pages/${encodeURIComponent(DB_KEY)}`, { cache: 'no-store' })
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.blocks ?? null
+  } catch { return null }
+}
+
+async function savePagesToDb(pages: PageDef[]): Promise<void> {
+  try {
+    await fetch(`/api/pages/${encodeURIComponent(DB_KEY)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ blocks: pages }),
+    })
+  } catch { /* fallback to localStorage */ }
+}
+
 export function usePages() {
   const [pages, setPagesRaw] = useState<PageDef[]>(loadPages)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Load pages list from DB on mount
+  useEffect(() => {
+    let cancelled = false
+    fetchPagesFromDb().then(dbPages => {
+      if (cancelled || !dbPages || !Array.isArray(dbPages) || dbPages.length === 0) return
+      setPagesRaw(dbPages)
+      savePages(dbPages)
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  // Save to localStorage immediately + DB with debounce on every change
   useEffect(() => {
     savePages(pages)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => savePagesToDb(pages), 500)
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
   }, [pages])
 
   const setPages = useCallback((fn: PageDef[] | ((prev: PageDef[]) => PageDef[])) => {
@@ -95,7 +148,8 @@ export function usePages() {
   const addPage = useCallback((title: string, emoji: string) => {
     setPagesRaw(prev => {
       const maxNum = Math.max(...prev.map(p => p.num), 0)
-      const slug = `custom-${Date.now()}`
+      const existingSlugs = new Set(prev.map(p => p.slug))
+      const slug = uniqueSlug(titleToSlug(title), existingSlugs)
       const newPage: PageDef = {
         id: slug,
         slug,

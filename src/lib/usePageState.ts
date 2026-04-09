@@ -8,14 +8,14 @@ export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 const DEBOUNCE_MS = 800
 const POLL_INTERVAL_MS = 10_000
 
-async function fetchBlocks(pageKey: string): Promise<Block[] | null> {
+async function fetchPage(pageKey: string): Promise<{ blocks: Block[] | null; snapshot: Block[] | null }> {
   try {
     const res = await fetch(`/api/pages/${encodeURIComponent(pageKey)}`, { cache: 'no-store' })
-    if (!res.ok) return null
+    if (!res.ok) return { blocks: null, snapshot: null }
     const data = await res.json()
-    return data.blocks ?? null
+    return { blocks: data.blocks ?? null, snapshot: data.snapshot ?? null }
   } catch {
-    return null
+    return { blocks: null, snapshot: null }
   }
 }
 
@@ -46,17 +46,17 @@ export function usePageState(pageKey: string, defaultBlocks: Block[]) {
 
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const loadedFromDb = useRef(false)
   const lastEditTime = useRef(0)
   const blocksRef = useRef(blocks)
   blocksRef.current = blocks
+  const snapshotRef = useRef<Block[] | null>(null)
 
   // On mount: fetch from DB, prefer DB data over localStorage
   useEffect(() => {
     let cancelled = false
-    fetchBlocks(pageKey).then(dbBlocks => {
+    fetchPage(pageKey).then(({ blocks: dbBlocks, snapshot }) => {
       if (cancelled) return
-      loadedFromDb.current = true
+      if (snapshot) snapshotRef.current = snapshot
       if (dbBlocks && dbBlocks.length > 0) {
         setBlocksRaw(dbBlocks)
         try { localStorage.setItem(storageKey, JSON.stringify(dbBlocks)) } catch {}
@@ -71,7 +71,8 @@ export function usePageState(pageKey: string, defaultBlocks: Block[]) {
       const msSinceLastEdit = Date.now() - lastEditTime.current
       if (msSinceLastEdit < 3000) return
 
-      fetchBlocks(pageKey).then(dbBlocks => {
+      fetchPage(pageKey).then(({ blocks: dbBlocks, snapshot }) => {
+        if (snapshot) snapshotRef.current = snapshot
         if (!dbBlocks || dbBlocks.length === 0) return
         const msSinceEdit = Date.now() - lastEditTime.current
         if (msSinceEdit < 3000) return
@@ -147,11 +148,19 @@ export function usePageState(pageKey: string, defaultBlocks: Block[]) {
     }
   }, [pageKey])
 
+  // Reset: use 2-day snapshot if available, otherwise fall back to code defaults
   const resetToDefault = useCallback(() => {
+    const resetTarget = snapshotRef.current && snapshotRef.current.length > 0
+      ? snapshotRef.current
+      : defaultBlocks
     lastEditTime.current = Date.now()
-    setBlocksRaw(defaultBlocks)
-    try { localStorage.removeItem(storageKey) } catch {}
-    persistBlocks(pageKey, defaultBlocks)
+    setBlocksRaw(resetTarget)
+    try { localStorage.setItem(storageKey, JSON.stringify(resetTarget)) } catch {}
+    setSaveStatus('saving')
+    persistBlocks(pageKey, resetTarget).then(ok => {
+      setSaveStatus(ok ? 'saved' : 'error')
+      if (ok) setTimeout(() => setSaveStatus(prev => prev === 'saved' ? 'idle' : prev), 2000)
+    })
   }, [defaultBlocks, storageKey, pageKey])
 
   return { blocks, setBlocks, updateBlock, addBlock, removeBlock, resetToDefault, saveStatus, forceSave }
