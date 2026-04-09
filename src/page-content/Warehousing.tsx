@@ -727,12 +727,12 @@ GRANT USE SCHEMA, SELECT, CREATE TABLE ON SCHEMA floranow_catalog.gold TO \`flor
 ]
 
 export default function Warehousing() {
-  const { blocks, updateBlock, addBlock, removeBlock } = usePageState('page:warehousing', DEFAULT_BLOCKS)
+  const { blocks, updateBlock, addBlock, removeBlock, saveStatus, forceSave } = usePageState('page:warehousing', DEFAULT_BLOCKS)
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
       <div className="pl-10">
-        <BlockEditor blocks={blocks} updateBlock={updateBlock} addBlock={addBlock} removeBlock={removeBlock} />
+        <BlockEditor blocks={blocks} updateBlock={updateBlock} addBlock={addBlock} removeBlock={removeBlock} saveStatus={saveStatus} onSave={forceSave} />
       </div>
     </div>
   )

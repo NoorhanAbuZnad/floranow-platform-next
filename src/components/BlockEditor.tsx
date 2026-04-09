@@ -1,7 +1,8 @@
 'use client'
 
-import { Trash2, GripVertical } from 'lucide-react'
+import { Trash2, GripVertical, Save, Check, Loader2, AlertCircle } from 'lucide-react'
 import type { Block } from '../lib/blocks'
+import type { SaveStatus } from '../lib/usePageState'
 import EditableText from './EditableText'
 import AddBlockMenu from './AddBlockMenu'
 import EditableTable from './EditableTable'
@@ -12,6 +13,8 @@ interface Props {
   updateBlock: (id: string, patch: Partial<Block>) => void
   addBlock: (block: Block, afterId?: string) => void
   removeBlock: (id: string) => void
+  saveStatus?: SaveStatus
+  onSave?: () => void
 }
 
 const HEADING_CLASSES: Record<number, string> = {
@@ -292,9 +295,49 @@ function renderBlock(
   }
 }
 
-export default function BlockEditor({ blocks, updateBlock, addBlock, removeBlock }: Props) {
+function SaveBar({ status, onSave }: { status: SaveStatus; onSave?: () => void }) {
+  return (
+    <div className="flex items-center justify-end gap-2 mb-3 px-1">
+      <div className="flex items-center gap-1.5 text-xs">
+        {status === 'saving' && (
+          <>
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />
+            <span className="text-blue-600">Saving...</span>
+          </>
+        )}
+        {status === 'saved' && (
+          <>
+            <Check className="w-3.5 h-3.5 text-green-500" />
+            <span className="text-green-600">Saved</span>
+          </>
+        )}
+        {status === 'error' && (
+          <>
+            <AlertCircle className="w-3.5 h-3.5 text-red-500" />
+            <span className="text-red-600">Save failed</span>
+          </>
+        )}
+        {status === 'idle' && (
+          <span className="text-gray-400">Auto-save on</span>
+        )}
+      </div>
+      {onSave && (
+        <button
+          onClick={onSave}
+          className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md bg-fn-500 text-white hover:bg-fn-600 transition-colors"
+        >
+          <Save className="w-3 h-3" />
+          Save
+        </button>
+      )}
+    </div>
+  )
+}
+
+export default function BlockEditor({ blocks, updateBlock, addBlock, removeBlock, saveStatus, onSave }: Props) {
   return (
     <div className="space-y-1">
+      {saveStatus !== undefined && <SaveBar status={saveStatus} onSave={onSave} />}
       <AddBlockMenu onAdd={block => addBlock(block, undefined)} />
       {blocks.map(block => (
         <div key={block.id}>

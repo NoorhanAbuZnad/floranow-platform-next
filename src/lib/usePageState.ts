@@ -3,11 +3,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { Block } from './blocks'
 
-const DEBOUNCE_MS = 500
+export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
+
+const DEBOUNCE_MS = 800
+const POLL_INTERVAL_MS = 10_000
 
 async function fetchBlocks(pageKey: string): Promise<Block[] | null> {
   try {
-    const res = await fetch(`/api/pages/${encodeURIComponent(pageKey)}`)
+    const res = await fetch(`/api/pages/${encodeURIComponent(pageKey)}`, { cache: 'no-store' })
     if (!res.ok) return null
     const data = await res.json()
     return data.blocks ?? null
@@ -16,14 +19,17 @@ async function fetchBlocks(pageKey: string): Promise<Block[] | null> {
   }
 }
 
-async function saveBlocks(pageKey: string, blocks: Block[]): Promise<void> {
+async function persistBlocks(pageKey: string, blocks: Block[]): Promise<boolean> {
   try {
-    await fetch(`/api/pages/${encodeURIComponent(pageKey)}`, {
+    const res = await fetch(`/api/pages/${encodeURIComponent(pageKey)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ blocks }),
     })
-  } catch { /* network error — localStorage still has the data */ }
+    return res.ok
+  } catch {
+    return false
+  }
 }
 
 export function usePageState(pageKey: string, defaultBlocks: Block[]) {
@@ -38,57 +44,86 @@ export function usePageState(pageKey: string, defaultBlocks: Block[]) {
     return defaultBlocks
   })
 
-  const [loaded, setLoaded] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const isFirstRender = useRef(true)
+  const loadedFromDb = useRef(false)
+  const lastEditTime = useRef(0)
+  const blocksRef = useRef(blocks)
+  blocksRef.current = blocks
 
-  // On mount: fetch from API, prefer DB over localStorage over defaults
+  // On mount: fetch from DB, prefer DB data over localStorage
   useEffect(() => {
     let cancelled = false
     fetchBlocks(pageKey).then(dbBlocks => {
       if (cancelled) return
+      loadedFromDb.current = true
       if (dbBlocks && dbBlocks.length > 0) {
         setBlocksRaw(dbBlocks)
         try { localStorage.setItem(storageKey, JSON.stringify(dbBlocks)) } catch {}
       }
-      setLoaded(true)
     })
     return () => { cancelled = true }
   }, [pageKey, storageKey])
 
-  // On change: write to localStorage immediately + debounced save to API
+  // Poll for other users' changes every 10 seconds
   useEffect(() => {
-    if (isFirstRender.current) {
-      isFirstRender.current = false
-      return
-    }
+    const interval = setInterval(() => {
+      const msSinceLastEdit = Date.now() - lastEditTime.current
+      if (msSinceLastEdit < 3000) return
 
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(blocks))
-    } catch { /* quota exceeded */ }
+      fetchBlocks(pageKey).then(dbBlocks => {
+        if (!dbBlocks || dbBlocks.length === 0) return
+        const msSinceEdit = Date.now() - lastEditTime.current
+        if (msSinceEdit < 3000) return
 
+        const currentJson = JSON.stringify(blocksRef.current)
+        const dbJson = JSON.stringify(dbBlocks)
+        if (currentJson !== dbJson) {
+          setBlocksRaw(dbBlocks)
+          try { localStorage.setItem(storageKey, dbJson) } catch {}
+        }
+      })
+    }, POLL_INTERVAL_MS)
+    return () => clearInterval(interval)
+  }, [pageKey, storageKey])
+
+  // Save to DB with debounce when blocks change from user edits
+  const saveToDb = useCallback((blocksToSave: Block[]) => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => {
-      saveBlocks(pageKey, blocks)
+    setSaveStatus('saving')
+    debounceRef.current = setTimeout(async () => {
+      const ok = await persistBlocks(pageKey, blocksToSave)
+      setSaveStatus(ok ? 'saved' : 'error')
+      if (ok) {
+        setTimeout(() => setSaveStatus(prev => prev === 'saved' ? 'idle' : prev), 2000)
+      }
     }, DEBOUNCE_MS)
+  }, [pageKey])
 
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current)
-    }
-  }, [blocks, pageKey, storageKey])
+  const editBlocks = useCallback((updater: (prev: Block[]) => Block[]) => {
+    setBlocksRaw(prev => {
+      const next = updater(prev)
+      lastEditTime.current = Date.now()
+      try { localStorage.setItem(`floranow:${pageKey}`, JSON.stringify(next)) } catch {}
+      saveToDb(next)
+      return next
+    })
+  }, [pageKey, saveToDb])
 
   const setBlocks = useCallback((fn: Block[] | ((prev: Block[]) => Block[])) => {
-    setBlocksRaw(fn)
-  }, [])
+    if (typeof fn === 'function') {
+      editBlocks(fn)
+    } else {
+      editBlocks(() => fn)
+    }
+  }, [editBlocks])
 
   const updateBlock = useCallback((id: string, patch: Partial<Block>) => {
-    setBlocksRaw(prev =>
-      prev.map(b => (b.id === id ? { ...b, ...patch } as Block : b))
-    )
-  }, [])
+    editBlocks(prev => prev.map(b => (b.id === id ? { ...b, ...patch } as Block : b)))
+  }, [editBlocks])
 
   const addBlock = useCallback((block: Block, afterId?: string) => {
-    setBlocksRaw(prev => {
+    editBlocks(prev => {
       if (!afterId) return [...prev, block]
       const idx = prev.findIndex(b => b.id === afterId)
       if (idx === -1) return [...prev, block]
@@ -96,17 +131,28 @@ export function usePageState(pageKey: string, defaultBlocks: Block[]) {
       next.splice(idx + 1, 0, block)
       return next
     })
-  }, [])
+  }, [editBlocks])
 
   const removeBlock = useCallback((id: string) => {
-    setBlocksRaw(prev => prev.filter(b => b.id !== id))
-  }, [])
+    editBlocks(prev => prev.filter(b => b.id !== id))
+  }, [editBlocks])
+
+  const forceSave = useCallback(async () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    setSaveStatus('saving')
+    const ok = await persistBlocks(pageKey, blocksRef.current)
+    setSaveStatus(ok ? 'saved' : 'error')
+    if (ok) {
+      setTimeout(() => setSaveStatus(prev => prev === 'saved' ? 'idle' : prev), 2000)
+    }
+  }, [pageKey])
 
   const resetToDefault = useCallback(() => {
+    lastEditTime.current = Date.now()
     setBlocksRaw(defaultBlocks)
     try { localStorage.removeItem(storageKey) } catch {}
-    saveBlocks(pageKey, defaultBlocks)
+    persistBlocks(pageKey, defaultBlocks)
   }, [defaultBlocks, storageKey, pageKey])
 
-  return { blocks, setBlocks, updateBlock, addBlock, removeBlock, resetToDefault, loaded }
+  return { blocks, setBlocks, updateBlock, addBlock, removeBlock, resetToDefault, saveStatus, forceSave }
 }

@@ -18,11 +18,11 @@ function TabBlocksContent({ storageKey }: { storageKey: string }) {
     { id: uid(), type: 'heading', level: 2, text: 'New section' },
     { id: uid(), type: 'text', text: 'Click to edit this text. Use the + buttons to add new blocks.' },
   ]
-  const { blocks, updateBlock, addBlock, removeBlock } = usePageState(storageKey, defaultBlocks)
+  const { blocks, updateBlock, addBlock, removeBlock, saveStatus, forceSave } = usePageState(storageKey, defaultBlocks)
   return (
     <div className="p-8 max-w-5xl mx-auto">
       <div className="pl-10">
-        <BlockEditor blocks={blocks} updateBlock={updateBlock} addBlock={addBlock} removeBlock={removeBlock} />
+        <BlockEditor blocks={blocks} updateBlock={updateBlock} addBlock={addBlock} removeBlock={removeBlock} saveStatus={saveStatus} onSave={forceSave} />
       </div>
     </div>
   )

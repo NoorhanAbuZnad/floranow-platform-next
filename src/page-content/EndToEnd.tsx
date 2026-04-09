@@ -179,12 +179,12 @@ const DEFAULT_BLOCKS: Block[] = [
 ]
 
 export default function EndToEnd() {
-  const { blocks, updateBlock, addBlock, removeBlock } = usePageState('page:endtoend', DEFAULT_BLOCKS)
+  const { blocks, updateBlock, addBlock, removeBlock, saveStatus, forceSave } = usePageState('page:endtoend', DEFAULT_BLOCKS)
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
       <div className="pl-10">
-        <BlockEditor blocks={blocks} updateBlock={updateBlock} addBlock={addBlock} removeBlock={removeBlock} />
+        <BlockEditor blocks={blocks} updateBlock={updateBlock} addBlock={addBlock} removeBlock={removeBlock} saveStatus={saveStatus} onSave={forceSave} />
       </div>
     </div>
   )
